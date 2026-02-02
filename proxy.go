@@ -66,6 +66,7 @@ func main() {
 	http.HandleFunc("/project", controllers.CreateProject)
 	http.HandleFunc("/api_key", controllers.ProxyApiKey)
 	http.HandleFunc("/projects", controllers.GetProxyProjects)
+	http.HandleFunc("/projects/logs", controllers.GetProxyProjectLogs)
 	fmt.Println("Proxy server is running at port 9000")
 	if err := http.ListenAndServe(":9000", nil); err != nil {
 		fmt.Println("Proxy server failed to connect ", err)
