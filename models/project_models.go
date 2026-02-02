@@ -20,6 +20,7 @@ type Project struct {
 
 type ResponseLog struct {
 	ID            bson.ObjectID `json:"_id" bson:"_id,omitempty"`
+	ProjectID     string        `json:"project_id" bson:"project_id"`
 	ResponseLogId string        `json:"response_log_id" bson:"response_log_id"`
 	UserID        string        `json:"user_id" bson:"user_id"`
 	Host          string        `json:"host" bson:"host"`
