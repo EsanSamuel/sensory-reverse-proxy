@@ -17,3 +17,22 @@ type Project struct {
 	UpdatedAt   time.Time     `json:"updated_at" bson:"updated_at"`
 	BackendUrls []string      `json:"backend_urls" bson:"backend_urls"`
 }
+
+type ResponseLog struct {
+	ID            bson.ObjectID `json:"_id" bson:"_id,omitempty"`
+	ResponseLogId string        `json:"response_log_id" bson:"response_log_id"`
+	UserID        string        `json:"user_id" bson:"user_id"`
+	Host          string        `json:"host" bson:"host"`
+	Method        string        `json:"method" bson:"method"`
+	UrlPath       string        `json:"url_path" bson:"url_path"`
+	StatusCode    int           `json:"status_code" bson:"status_code"`
+	BytesWritten  int64         `json:"bytes_written" bson:"bytes_written" `
+	Duration      int64         `json:"duration" bson:"duration"`
+	ClientIP      string        `json:"client_ip" bson:"client_ip"`
+	UserAgent     string        `json:"user_agent" bson:"user_agent"`
+	QueryParams   string        `json:"query_params" bson:"query_params"`
+	Referer       string        `json:"referer" bson:"referer"`
+	Timestamp     time.Time     `json:"timestamp" bson:"timestamp"`
+	Protocol      string        `json:"protocol" bson:"protocol"`
+	ContentType   string        `json:"content_type" bson:"content_type"`
+}

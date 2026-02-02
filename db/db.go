@@ -57,3 +57,4 @@ func CollectionName(collectionName string) *mongo.Collection {
 
 var UserCollection = CollectionName("users")
 var Proxy_ProjectCollection = CollectionName("proxy_projects")
+var Response_Log = CollectionName("response_log")

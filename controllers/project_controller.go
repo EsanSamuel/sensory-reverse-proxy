@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
-	"fmt"
 	"log"
 	"net/http"
 	"time"
@@ -108,8 +107,6 @@ func ProxyApiKey(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]interface{}{"project": result})
 }
 
-var BackendUrls []string
-
 func GetProxyProjects(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -134,12 +131,6 @@ func GetProxyProjects(w http.ResponseWriter, r *http.Request) {
 		helpers.ErrorResponse(w, http.StatusInternalServerError, "Error decoding user projects", err)
 		return
 	}
-
-	BackendUrls = []string{}
-	for _, project := range projects {
-		BackendUrls = append(BackendUrls, project.BackendUrls...)
-	}
-	fmt.Println(BackendUrls)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)

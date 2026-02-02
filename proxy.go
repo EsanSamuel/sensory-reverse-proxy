@@ -157,10 +157,14 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 
 	proxy := httputil.NewSingleHostReverseProxy(backendURL)
 
-	r.URL.Host = backendURL.Host
-	r.URL.Scheme = backendURL.Scheme
-	r.Header.Set("X-Forwarded-Host", r.Header.Get("Host"))
-	r.Host = backendURL.Host
+	originalDirector := proxy.Director
+	proxy.Director = func(req *http.Request) {
+		originalDirector(req)
+		req.Host = backendURL.Host
+		req.Header.Set("X-Forwarded-Proto", backendURL.Scheme)
+		req.Header.Set("X-Forwarded-Host", req.Host)
+		req.Header.Set("X-Real-IP", req.RemoteAddr)
+	}
 
 	start := time.Now()
 	rw := NewResponseWriter(w)
@@ -168,6 +172,34 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 	proxy.ServeHTTP(rw, r)
 
 	duration := time.Since(start)
+
+	var response_log models.ResponseLog
+
+	response_log.ResponseLogId = bson.NewObjectID().Hex()
+	response_log.UserID = project.UserID
+	response_log.BytesWritten = rw.bytesWritten
+	response_log.Method = r.Method
+	response_log.Host = r.Host
+	response_log.UrlPath = r.URL.Path
+	response_log.StatusCode = rw.statusCode
+	response_log.Duration = duration.Milliseconds()
+	response_log.ClientIP = r.RemoteAddr
+	response_log.UserAgent = r.UserAgent()
+	response_log.QueryParams = r.URL.RawQuery
+	response_log.Referer = r.Header.Get("Referer")
+	response_log.Timestamp = time.Now()
+	response_log.Protocol = r.Proto                            // HTTP/1.1, HTTP/2, etc.
+	response_log.ContentType = rw.Header().Get("Content-Type") // Response type
+
+	result, err := db.Response_Log.InsertOne(ctx, response_log)
+	if result.Acknowledged {
+		log.Println(result)
+	}
+
+	if err != nil {
+		http.Error(w, "Error inserting response log to db", http.StatusInternalServerError)
+		return
+	}
 
 	log.Printf(
 		"host=%s method=%s path=%s status=%d bytes=%d duration_ms=%dms",
