@@ -136,3 +136,33 @@ func GetProxyProjects(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(map[string]interface{}{"projects": projects})
 }
+
+func GetProxyProjectLogs(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	projectId := r.URL.Query().Get("projectId")
+
+	var logs []models.ResponseLog
+
+	cursor, err := db.Response_Log.Find(ctx, bson.M{"project_id": projectId})
+
+	if err != nil {
+		helpers.ErrorResponse(w, http.StatusInternalServerError, "Error getting proxy response log", err)
+		return
+	}
+
+	if err := cursor.All(ctx, &logs); err != nil {
+		helpers.ErrorResponse(w, http.StatusInternalServerError, "Error decoding proxy response log", err)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(map[string]interface{}{"logs": logs})
+}
