@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -62,11 +63,11 @@ func main() {
 	go healthCheckRoutine()
 
 	http.HandleFunc("/", proxyHandler)
-	http.HandleFunc("/register", registerUserBackend)
-	http.HandleFunc("/project", controllers.CreateProject)
-	http.HandleFunc("/api_key", controllers.ProxyApiKey)
-	http.HandleFunc("/projects", controllers.GetProxyProjects)
-	http.HandleFunc("/projects/logs", controllers.GetProxyProjectLogs)
+	http.HandleFunc("/_proxy/register", registerUserBackend)
+	http.HandleFunc("/_proxy/project", controllers.CreateProject)
+	http.HandleFunc("/_proxy/api_key", controllers.ProxyApiKey)
+	http.HandleFunc("/_proxy/projects", controllers.GetProxyProjects)
+	http.HandleFunc("/_proxy/projects/logs", controllers.GetProxyProjectLogs)
 	fmt.Println("Proxy server is running at port 9000")
 	if err := http.ListenAndServe(":9000", nil); err != nil {
 		fmt.Println("Proxy server failed to connect ", err)
@@ -110,6 +111,11 @@ func registerUserBackend(w http.ResponseWriter, r *http.Request) {
 }
 
 func proxyHandler(w http.ResponseWriter, r *http.Request) {
+	if strings.HasPrefix(r.URL.Path, "/_proxy/") {
+		http.Error(w, "Not found", http.StatusNotFound)
+		return
+	}
+
 	api_key := r.Header.Get("X-API-KEY")
 
 	if api_key == "" {
