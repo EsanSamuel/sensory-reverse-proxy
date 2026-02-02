@@ -182,6 +182,8 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 
 	var response_log models.ResponseLog
 
+	r.Host = backendURL.Host
+
 	response_log.ResponseLogId = bson.NewObjectID().Hex()
 	response_log.ProjectID = project.ProjectID
 	response_log.UserID = project.UserID
