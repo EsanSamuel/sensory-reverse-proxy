@@ -16,7 +16,7 @@ func ConnectDB() *mongo.Client {
 	mongodb_uri := os.Getenv("MONGODB_URI")
 
 	if mongodb_uri == "" {
-		fmt.Println("Mongodb uri is empty")
+		fmt.Println("MONGODB_URI is empty")
 		return nil
 	}
 
@@ -24,7 +24,14 @@ func ConnectDB() *mongo.Client {
 
 	client, err := mongo.Connect(clientOptions)
 	if err != nil {
-		fmt.Println(err)
+		fmt.Println("Error creating MongoDB client:", err)
+		return nil
+	}
+
+	// Double check connectivity
+	err = client.Ping(nil, nil)
+	if err != nil {
+		fmt.Println("Could not connect to MongoDB:", err)
 		return nil
 	}
 

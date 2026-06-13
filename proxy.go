@@ -62,16 +62,44 @@ func (rw *responseWriter) Write(b []byte) (int, error) {
 func main() {
 	go healthCheckRoutine()
 
-	http.HandleFunc("/", proxyHandler)
-	http.HandleFunc("/_proxy/register", registerUserBackend)
-	http.HandleFunc("/_proxy/project", controllers.CreateProject)
-	http.HandleFunc("/_proxy/api_key", controllers.ProxyApiKey)
-	http.HandleFunc("/_proxy/projects", controllers.GetProxyProjects)
-	http.HandleFunc("/_proxy/projects/logs", controllers.GetProxyProjectLogs)
+	// Create a separate mux for proxy management
+	managementMux := http.NewServeMux()
+	managementMux.HandleFunc("/_proxy/register", registerUserBackend)
+	managementMux.HandleFunc("/_proxy/project", controllers.CreateProject)
+	managementMux.HandleFunc("/_proxy/api_key", controllers.ProxyApiKey)
+	managementMux.HandleFunc("/_proxy/projects", controllers.GetProxyProjects)
+	managementMux.HandleFunc("/_proxy/projects/logs", controllers.GetProxyProjectLogs)
+
+	// Main mux handles both
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/_proxy/") {
+			// Apply CORS only to management routes
+			enableCORS(managementMux).ServeHTTP(w, r)
+			return
+		}
+		// Direct proxying for everything else (no extra CORS layer)
+		proxyHandler(w, r)
+	})
+
 	fmt.Println("Proxy server is running at port 9000")
 	if err := http.ListenAndServe(":9000", nil); err != nil {
 		fmt.Println("Proxy server failed to connect ", err)
 	}
+}
+
+func enableCORS(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-API-KEY")
+
+		if r.Method == "OPTIONS" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
 }
 
 func getNextBackendUrl() string {
@@ -113,6 +141,15 @@ func registerUserBackend(w http.ResponseWriter, r *http.Request) {
 func proxyHandler(w http.ResponseWriter, r *http.Request) {
 	if strings.HasPrefix(r.URL.Path, "/_proxy/") {
 		http.Error(w, "Not found", http.StatusNotFound)
+		return
+	}
+
+	// Allow OPTIONS preflight requests to pass through without API key
+	if r.Method == http.MethodOptions {
+		w.Header().Set("Access-Control-Allow-Origin", r.Header.Get("Origin"))
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-API-KEY")
+		w.WriteHeader(http.StatusOK)
 		return
 	}
 

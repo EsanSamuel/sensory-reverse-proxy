@@ -61,6 +61,7 @@ func CreateProject(w http.ResponseWriter, r *http.Request) {
 	}
 
 	project.ProjectID = bson.NewObjectID().Hex()
+	project.ApiKey = GenerateApiKey()
 	project.CreatedAt = time.Now()
 	project.UpdatedAt = time.Now()
 
@@ -104,7 +105,7 @@ func ProxyApiKey(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(map[string]interface{}{"project": result})
+	json.NewEncoder(w).Encode(map[string]interface{}{"project": result, "api_key": api_key})
 }
 
 func GetProxyProjects(w http.ResponseWriter, r *http.Request) {
