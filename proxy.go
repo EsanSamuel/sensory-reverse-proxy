@@ -239,13 +239,10 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 	response_log.ContentType = rw.Header().Get("Content-Type") // Response type
 
 	result, err := db.Response_Log.InsertOne(ctx, response_log)
-	if result.Acknowledged {
-		log.Println(result)
-	}
-
 	if err != nil {
-		http.Error(w, "Error inserting response log to db", http.StatusInternalServerError)
-		return
+		log.Printf("Error inserting response log to db: %v", err)
+	} else if result != nil && result.Acknowledged {
+		log.Printf("Log inserted successfully: %v", result.InsertedID)
 	}
 
 	log.Printf(
