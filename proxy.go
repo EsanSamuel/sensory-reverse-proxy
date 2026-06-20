@@ -19,11 +19,10 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo"
 )
 
-var userBackends = make(map[string]*url.URL)
-
-var rrIndex uint32
-var healthyBackends []string // Track all healthy backend urls
-var currentBackends []string // Track current project's backend urls
+var rrIndex = make(map[string]*uint32)    // Round-robin index for each route
+var rrMu sync.Mutex                       // Mutex to protect rrIndex map
+var backendHealth = make(map[string]bool) // backend URL -> healthy?
+var allBackends = make(map[string]bool)   // set of all known backend URLs to health-check
 var mu sync.RWMutex
 
 type responseWriter struct {
@@ -64,7 +63,6 @@ func main() {
 
 	// Create a separate mux for proxy management
 	managementMux := http.NewServeMux()
-	managementMux.HandleFunc("/_proxy/register", registerUserBackend)
 	managementMux.HandleFunc("/_proxy/project", controllers.CreateProject)
 	managementMux.HandleFunc("/_proxy/api_key", controllers.ProxyApiKey)
 	managementMux.HandleFunc("/_proxy/projects", controllers.GetProxyProjects)
@@ -102,40 +100,74 @@ func enableCORS(next http.Handler) http.Handler {
 	})
 }
 
-func getNextBackendUrl() string {
-	mu.RLock()
-	defer mu.RUnlock()
+func matchRoute(project *models.Project, path string) *models.Route {
+	var matched *models.Route
+	longest := 0
 
-	n := len(healthyBackends)
-	if n == 0 {
+	for i := range project.Routes {
+		route := &project.Routes[i]
+
+		if strings.HasPrefix(path, route.Path) && len(route.Path) > longest {
+			matched = route
+			longest = len(route.Path)
+		}
+	}
+	return matched
+}
+
+func pickBackendFromRoute(route *models.Route, projectID string) string {
+	if len(route.Backends) == 0 {
+		log.Printf("No backends defined for route %s in project %s", route.Path, projectID)
 		return ""
 	}
 
-	idx := atomic.AddUint32(&rrIndex, 1)
-	target := healthyBackends[int(idx-1)%n]
+	mu.RLock()
+	healthy := make([]string, 0, len(route.Backends))
+	for _, b := range route.Backends {
+		if isHealthy, exists := backendHealth[b]; exists && isHealthy {
+			healthy = append(healthy, b)
+		} else if !exists {
+			healthy = append(healthy, b)
+		}
+	}
+	mu.RUnlock()
 
-	return target
+	if len(healthy) == 0 {
+		log.Printf("No healthy backends available for route %s in project %s", route.Path, projectID)
+		return ""
+	}
+
+	key := projectID + route.Path
+
+	rrMu.Lock()
+	counter, exists := rrIndex[key]
+	if !exists {
+		counter = new(uint32)
+		rrIndex[key] = counter
+	}
+	rrMu.Unlock()
+
+	idx := atomic.AddUint32(counter, 1)
+
+	return healthy[int(idx-1)%len(healthy)]
 }
 
-func registerUserBackend(w http.ResponseWriter, r *http.Request) {
-	name := r.URL.Query().Get("name")
-	backendUrl := r.URL.Query().Get("url")
-
-	if name == "" || backendUrl == "" {
-		http.Error(w, "No name or url found", http.StatusInternalServerError)
-		return
-	}
-
-	parsedUrl, err := url.Parse(backendUrl)
-	fmt.Println(parsedUrl)
-
-	if err != nil {
-		log.Println("Error parsing url", err)
-	}
-
+func registerBackends(project *models.Project) {
 	mu.Lock()
-	userBackends[name] = parsedUrl
-	mu.Unlock()
+	defer mu.Unlock()
+
+	for _, b := range project.BackendUrls {
+		if _, exists := allBackends[b]; !exists {
+			allBackends[b] = true // assume healthy until first check runs
+		}
+	}
+	for _, route := range project.Routes {
+		for _, b := range route.Backends {
+			if _, exists := allBackends[b]; !exists {
+				allBackends[b] = true
+			}
+		}
+	}
 }
 
 func proxyHandler(w http.ResponseWriter, r *http.Request) {
@@ -175,25 +207,30 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Update current backends for health checking
-	mu.Lock()
-	currentBackends = project.BackendUrls
-	// Initialize healthyBackends
-	if len(healthyBackends) == 0 {
-		healthyBackends = append([]string(nil), project.BackendUrls...)
+	registerBackends(&project)
+
+	var target string
+
+	if len(project.Routes) > 0 {
+		route := matchRoute(&project, r.URL.Path)
+		if route != nil {
+			target = pickBackendFromRoute(route, project.ProjectID)
+		}
 	}
-	mu.Unlock()
 
-	backendUrl := getNextBackendUrl()
+	if target == "" && len(project.BackendUrls) > 0 {
+		target = pickBackendFromRoute(&models.Route{Backends: project.BackendUrls}, project.ProjectID)
+	}
 
-	if backendUrl == "" {
-		http.Error(w, "No healthy backends available", http.StatusServiceUnavailable)
+	if target == "" {
+		http.Error(w, "No backends available for matched route or project", http.StatusServiceUnavailable)
 		return
 	}
 
-	backendURL, err := url.Parse(backendUrl)
-	if err != nil {
-		http.Error(w, "Bad backend URL", http.StatusInternalServerError)
+	backendURL, err := url.Parse(target)
+	if err != nil || backendURL.Scheme == "" || backendURL.Host == "" {
+		log.Printf("Invalid backend target %q: %v", target, err)
+		http.Error(w, "Invalid backend configuration", http.StatusBadGateway)
 		return
 	}
 
@@ -262,26 +299,39 @@ func healthCheckRoutine() {
 
 	for range ticker.C {
 		mu.RLock()
-		backends := append([]string(nil), currentBackends...)
+		backends := make([]string, 0, len(allBackends))
+		for b := range allBackends {
+			backends = append(backends, b)
+		}
 		mu.RUnlock()
 
 		if len(backends) == 0 {
 			continue
 		}
 
-		newHealthy := []string{}
+		results := make(map[string]bool, len(backends))
+		var resultsMu sync.Mutex
+		var wg sync.WaitGroup
 
 		for _, backend := range backends {
-			if isBackendHealthy(backend) {
-				newHealthy = append(newHealthy, backend)
-			}
+			wg.Add(1)
+			go func(b string) {
+				defer wg.Done()
+				healthy := isBackendHealthy(b)
+				resultsMu.Lock()
+				results[b] = healthy
+				resultsMu.Unlock()
+			}(backend)
 		}
+		wg.Wait()
 
 		mu.Lock()
-		healthyBackends = newHealthy
+		for b, healthy := range results {
+			backendHealth[b] = healthy
+		}
 		mu.Unlock()
 
-		log.Printf("Healthy backends: %v", newHealthy)
+		log.Printf("Health check complete: %v", results)
 	}
 }
 

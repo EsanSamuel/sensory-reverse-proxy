@@ -6,6 +6,11 @@ import (
 	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
+type Route struct {
+	Path     string   `json:"path" bson:"path"`
+	Backends []string `json:"backends" bson:"backends"`
+}
+
 type Project struct {
 	ID          bson.ObjectID `json:"_id" bson:"_id,omitempty"`
 	ProjectID   string        `json:"project_id" bson:"project_id"`
@@ -16,6 +21,8 @@ type Project struct {
 	CreatedAt   time.Time     `json:"created_at" bson:"created_at"`
 	UpdatedAt   time.Time     `json:"updated_at" bson:"updated_at"`
 	BackendUrls []string      `json:"backend_urls" bson:"backend_urls"`
+
+	Routes []Route `json:"routes" bson:"routes"`
 }
 
 type ResponseLog struct {

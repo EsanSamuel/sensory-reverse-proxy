@@ -65,6 +65,14 @@ func CreateProject(w http.ResponseWriter, r *http.Request) {
 	project.CreatedAt = time.Now()
 	project.UpdatedAt = time.Now()
 
+	if project.Routes == nil {
+		project.Routes = []models.Route{}
+	}
+
+	if project.BackendUrls == nil {
+		project.BackendUrls = []string{}
+	}
+
 	result, err := db.Proxy_ProjectCollection.InsertOne(ctx, project)
 	if err != nil {
 		helpers.ErrorResponse(w, http.StatusInternalServerError, "Error creating project", err)
