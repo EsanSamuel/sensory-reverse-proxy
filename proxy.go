@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/EsanSamuel/reverse-proxy/controllers"
+	"github.com/EsanSamuel/reverse-proxy/config"
 	"github.com/EsanSamuel/reverse-proxy/db"
 	"github.com/EsanSamuel/reverse-proxy/models"
 	"go.mongodb.org/mongo-driver/v2/bson"
@@ -24,6 +25,7 @@ var rrMu sync.Mutex                       // Mutex to protect rrIndex map
 var backendHealth = make(map[string]bool) // backend URL -> healthy?
 var allBackends = make(map[string]bool)   // set of all known backend URLs to health-check
 var mu sync.RWMutex
+var Logger = config.InitLogger()
 
 type responseWriter struct {
 	http.ResponseWriter
@@ -79,8 +81,10 @@ func main() {
 		proxyHandler(w, r)
 	})
 
+	Logger.INFO("Proxy server is running at port 9000")
 	fmt.Println("Proxy server is running at port 9000")
 	if err := http.ListenAndServe(":9000", nil); err != nil {
+		Logger.ERROR("Proxy server is running at port 9000")
 		fmt.Println("Proxy server failed to connect ", err)
 	}
 }
@@ -234,6 +238,7 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	Logger.INFO(fmt.Sprintln("Proxying request %s %s -> %s", r.Method, r.URL.Path, backendURL))
 	log.Printf("Proxying request %s %s -> %s", r.Method, r.URL.Path, backendURL)
 
 	proxy := httputil.NewSingleHostReverseProxy(backendURL)
@@ -277,8 +282,10 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 
 	result, err := db.Response_Log.InsertOne(ctx, response_log)
 	if err != nil {
+		Logger.ERROR(fmt.Sprintln("Error inserting response log to db: %v", err))
 		log.Printf("Error inserting response log to db: %v", err)
 	} else if result != nil && result.Acknowledged {
+		Logger.INFO(fmt.Sprintln("Log inserted successfully: %v", result.InsertedID))
 		log.Printf("Log inserted successfully: %v", result.InsertedID)
 	}
 
@@ -291,6 +298,13 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 		rw.bytesWritten,
 		duration.Milliseconds(),
 	)
+	Logger.INFO(fmt.Sprintf("host=%s method=%s path=%s status=%d bytes=%d duration_ms=%dms",
+		r.Host,
+		r.Method,
+		r.URL.Path,
+		rw.statusCode,
+		rw.bytesWritten,
+		duration.Milliseconds()))
 }
 
 func healthCheckRoutine() {
@@ -341,6 +355,7 @@ func isBackendHealthy(backend string) bool {
 	}
 	resp, err := client.Get(backend)
 	if err != nil {
+		Logger.ERROR(fmt.Sprintf("Backend down: %s (%v)", backend, err))
 		log.Printf("Backend down: %s (%v)", backend, err)
 		return false
 	}
